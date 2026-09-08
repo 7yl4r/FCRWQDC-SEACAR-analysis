@@ -431,7 +431,7 @@
     "href": "prepDashboardExport.html",
     "title": "DVT Dataset Prep",
     "section": "",
-    "text": "This workflow prepares an export of the data modified for display on the FCRWQDC Data Visualization Tool.\n\n\nload and prep data\nlibrary(here)\nlibrary(magrittr)\nlibrary(dplyr)\n\nsource(here(\"SEACARProgramCompare/mapProgramNameToShortName.R\"))\n\ndf &lt;- readr::read_delim(\n  here(\"data/Discrete WQ - 10006.txt\"),\n  delim = \"|\"\n) %&gt;%\n  mutate(ProgramName = mapProgramNameToShortName(ProgramName))\n\n\n# keep only columns of interest\ncols_of_interest &lt;- c(\n  \"ProgramName\", \n  \"ProgramLocationID\", \n  \"OriginalLatitude\", \"OriginalLongitude\", \n  \"ActivityDepth_m\", \n  \"ParameterName\", \n  \"ParameterUnits\",\n  \"ResultValue\", \n  \"SampleDate\"\n)\ndf &lt;- df %&gt;% dplyr::select(all_of(cols_of_interest))\n\n# create data/exports if DNE\ndir.create(here::here(\"data\", \"exports\"), showWarnings = FALSE)\n\n# # save to csv\n# write.csv(df, here::here(\"data\", \"exports\", \"dashboardDataSEACAR.csv\"), row.names = FALSE)\n\n\n\n\ncreate dashboard stations file\n# Creates dashboardStations.csv with station metadata and parameter counts\nlibrary(tidyr)\nlibrary(lubridate)\n\n# Count points for each parameter at each station\nstation_parameter_counts &lt;- df %&gt;%\n  group_by(ProgramName, ProgramLocationID, OriginalLatitude, OriginalLongitude, ParameterName) %&gt;%\n  count(name = \"point_count\") %&gt;%\n  ungroup()\n\n# Calculate date range and sampling frequency for each station\nstation_date_check &lt;- df %&gt;%\n  group_by(ProgramName, ProgramLocationID) %&gt;%\n  summarise(\n    startDate = min(SampleDate, na.rm = TRUE),\n    endDate = max(SampleDate, na.rm = TRUE),\n    total_sampling_days = n_distinct(as.Date(SampleDate)),\n    .groups = \"drop\"\n  ) %&gt;%\n  mutate(\n    time_range_years = as.numeric(difftime(endDate, startDate, units = \"days\")) / 365.25,\n    averageSamplingDaysPerYear = total_sampling_days / time_range_years,\n    averageSamplingDaysPerYear = ifelse(is.infinite(averageSamplingDaysPerYear) | time_range_years &lt; 1/365.25, NA, averageSamplingDaysPerYear)\n  ) %&gt;%\n  select(-total_sampling_days, -time_range_years)\n\n# calculate min & max depths for station\nstation_depth_check &lt;- df %&gt;%\n  group_by(ProgramName, ProgramLocationID) %&gt;%\n  summarise(\n    minDepth = min(ActivityDepth_m, na.rm = TRUE),\n    maxDepth = max(ActivityDepth_m, na.rm = TRUE),\n    .groups = \"drop\"\n  )\n\n# Create station summary with separate columns for each parameter\ndashboard_stations &lt;- station_parameter_counts %&gt;%\n  pivot_wider(\n    names_from = ParameterName,\n    values_from = point_count,\n    values_fill = 0\n  ) %&gt;%\n  left_join(station_date_check, by = c(\"ProgramName\", \"ProgramLocationID\")) %&gt;%\n  left_join(station_depth_check, by = c(\"ProgramName\", \"ProgramLocationID\")) %&gt;%\n  arrange(ProgramName, ProgramLocationID)\n\n# Save dashboard stations file\nwrite.csv(dashboard_stations, here::here(\"data\", \"exports\", \"dashboardStations.csv\"), row.names = FALSE)\n\ncat(\"Created dashboardStations.csv with\", nrow(dashboard_stations), \"stations\\n\")\n\n\nCreated dashboardStations.csv with 2475 stations\n\n\n\n\ncreate individual station files\n# Creates individual CSV files for each station named ProgramName.ProgramLocationID.csv\n\n# Get unique stations\nstations &lt;- df %&gt;%\n  distinct(ProgramName, ProgramLocationID) %&gt;%\n  arrange(ProgramName, ProgramLocationID)\n\nstationDataPath &lt;- here::here(\"data\", \"exports\", \"stationData\")\n# create stationDataPath if DNE\ndir.create(stationDataPath, showWarnings = FALSE)\n\n# Create individual station files\nfor (i in 1:nrow(stations)) {\n  station_name &lt;- stations$ProgramName[i]\n  station_id &lt;- stations$ProgramLocationID[i]\n  \n  # Filter data for this station, drop coumns lat,lon,programName,station id \n  station_data &lt;- df %&gt;%\n    filter(ProgramName == station_name, ProgramLocationID == station_id) %&gt;%\n    dplyr::select(-OriginalLatitude, -OriginalLongitude, -ProgramName, -ProgramLocationID)\n  \n  # Create filename (replace / in station_id with _ to avoid path issues)\n  safe_station_id &lt;- gsub(\"/\", \"_\", station_id)\n  filename &lt;- paste0(station_name, \".\", safe_station_id, \".csv\")\n  filepath &lt;- here::here(stationDataPath, filename)\n  \n  # Save station data\n  write.csv(station_data, filepath, row.names = FALSE)\n}\n\ncat(\"Created\", nrow(stations), \"individual station CSV files\\n\")\n\n\nCreated 2327 individual station CSV files"
+    "text": "This workflow prepares an export of the data modified for display on the FCRWQDC Data Visualization Tool.\n\n\nload and prep data\nlibrary(here)\nlibrary(magrittr)\nlibrary(dplyr)\n\nsource(here(\"SEACARProgramCompare/mapProgramNameToShortName.R\"))\n\ndf &lt;- readr::read_delim(\n  here(\"data/Discrete WQ - 10006.txt\"),\n  delim = \"|\"\n) %&gt;%\n  mutate(ProgramName = mapProgramNameToShortName(ProgramName))\n\n\n# keep only columns of interest\ncols_of_interest &lt;- c(\n  \"ProgramName\", \n  \"ProgramLocationID\", \n  \"OriginalLatitude\", \"OriginalLongitude\", \n  \"ActivityDepth_m\", \n  \"ParameterName\", \n  \"ParameterUnits\",\n  \"ResultValue\", \n  \"SampleDate\"\n)\ndf &lt;- df %&gt;% dplyr::select(all_of(cols_of_interest))\n\n# create data/exports if DNE\ndir.create(here::here(\"data\", \"exports\"), showWarnings = FALSE)\n\n# # save to csv\n# write.csv(df, here::here(\"data\", \"exports\", \"dashboardDataSEACAR.csv\"), row.names = FALSE)\n\n\n\n\ncreate dashboard stations file\n# Creates dashboardStations.csv with station metadata and parameter counts\nlibrary(tidyr)\nlibrary(lubridate)\n\n# Count points for each parameter at each station\nstation_parameter_counts &lt;- df %&gt;%\n  group_by(ProgramName, ProgramLocationID, ParameterName) %&gt;%\n  count(name = \"point_count\") %&gt;%\n  ungroup()\n\n# Calculate date range and sampling frequency for each station\nstation_date_check &lt;- df %&gt;%\n  group_by(ProgramName, ProgramLocationID) %&gt;%\n  summarise(\n    startDate = min(SampleDate, na.rm = TRUE),\n    endDate = max(SampleDate, na.rm = TRUE),\n    total_sampling_days = n_distinct(as.Date(SampleDate)),\n    .groups = \"drop\"\n  ) %&gt;%\n  mutate(\n    time_range_years = as.numeric(difftime(endDate, startDate, units = \"days\")) / 365.25,\n    averageSamplingDaysPerYear = total_sampling_days / time_range_years,\n    averageSamplingDaysPerYear = ifelse(is.infinite(averageSamplingDaysPerYear) | time_range_years &lt; 1/365.25, NA, averageSamplingDaysPerYear)\n  ) %&gt;%\n  select(-total_sampling_days, -time_range_years)\n\nstation_depth_and_coords &lt;- df %&gt;%\n  group_by(ProgramName, ProgramLocationID) %&gt;%\n  summarise(\n    # calculate min & max depths for station\n    minDepth = min(ActivityDepth_m, na.rm = TRUE),\n    maxDepth = max(ActivityDepth_m, na.rm = TRUE),\n    \n    # calculate average coordinates for each station\n    AverageLatitude  = mean(OriginalLatitude,  na.rm = TRUE),\n    AverageLongitude = mean(OriginalLongitude, na.rm = TRUE),\n\n    .groups = \"drop\"\n  )\n\n# Create station summary with separate columns for each parameter\ndashboard_stations &lt;- station_parameter_counts %&gt;%\n  pivot_wider(\n    names_from = ParameterName,\n    values_from = point_count,\n    values_fill = 0\n  ) %&gt;%\n  left_join(station_depth_and_coords, by = c(\"ProgramName\", \"ProgramLocationID\")) %&gt;%\n  left_join(station_date_check, by = c(\"ProgramName\", \"ProgramLocationID\")) %&gt;%\n  arrange(ProgramName, ProgramLocationID)\n\n# Save dashboard stations file\nwrite.csv(dashboard_stations, here::here(\"data\", \"exports\", \"dashboardStations.csv\"), row.names = FALSE)\n\ncat(\"Created dashboardStations.csv with\", nrow(dashboard_stations), \"stations\\n\")\n\n\nCreated dashboardStations.csv with 2327 stations\n\n\n\n\ncreate individual station files\n# Creates individual CSV files for each station named ProgramName.ProgramLocationID.csv\n\n# Get unique stations\nstations &lt;- df %&gt;%\n  distinct(ProgramName, ProgramLocationID) %&gt;%\n  arrange(ProgramName, ProgramLocationID)\n\nstationDataPath &lt;- here::here(\"data\", \"exports\", \"stationData\")\n# create stationDataPath if DNE\ndir.create(stationDataPath, showWarnings = FALSE)\n\n# Create individual station files\nfor (i in 1:nrow(stations)) {\n  station_name &lt;- stations$ProgramName[i]\n  station_id &lt;- stations$ProgramLocationID[i]\n  \n  # Filter data for this station, drop coumns lat,lon,programName,station id \n  station_data &lt;- df %&gt;%\n    filter(ProgramName == station_name, ProgramLocationID == station_id) %&gt;%\n    dplyr::select(-OriginalLatitude, -OriginalLongitude, -ProgramName, -ProgramLocationID)\n  \n  # Create filename (replace / in station_id with _ to avoid path issues)\n  safe_station_id &lt;- gsub(\"/\", \"_\", station_id)\n  filename &lt;- paste0(station_name, \".\", safe_station_id, \".csv\")\n  filepath &lt;- here::here(stationDataPath, filename)\n  \n  # Save station data\n  write.csv(station_data, filepath, row.names = FALSE)\n}\n\ncat(\"Created\", nrow(stations), \"individual station CSV files\\n\")\n\n\nCreated 2327 individual station CSV files"
   },
   {
     "objectID": "SEACAROverallCompare.html",
@@ -845,5 +845,180 @@
     "title": "SE_FL_WQAS Report",
     "section": "ProgramLocationID Alignment",
     "text": "ProgramLocationID Alignment\n\n\nshow differences in ProgramLocationID\nlibrary(dplyr)\n\n# Find ProgramLocationIDs that exist only in only one of the datasets\nseacar_only &lt;- setdiff(dfs$SEACAR_STD$ProgramLocationID, dfs$OLD$ProgramLocationID)\nold_only &lt;- setdiff(dfs$OLD$ProgramLocationID, dfs$SEACAR_STD$ProgramLocationID)\n\n\n# plot counts of unique ProgramLocationIDs in OLD, SEACAR_STD, and both\nlibrary(ggplot2)\nboth        &lt;- intersect(dfs$SEACAR_STD$ProgramLocationID, dfs$OLD$ProgramLocationID)\n\nvenn_df &lt;- data.frame(\n  group = c(\"SEACAR only\", \"Both\", \"OLD only\"),\n  count = c(length(seacar_only), length(both), length(old_only))\n)\n\nggplot(venn_df, aes(x = group, y = count, fill = group)) +\n  geom_col(width = 0.6) +\n  geom_text(aes(label = count), vjust = -0.5, size = 4) +\n  scale_fill_manual(values = c(\n    \"SEACAR only\" = \"#378ADD\",\n    \"Both\"        = \"#999E75\",\n    \"OLD only\"    = \"#FFCAA5\"\n  )) +\n  scale_x_discrete(limits = c(\"SEACAR only\", \"Both\", \"OLD only\")) +\n  labs(\n    title = \"ProgramLocationID overlap between SEACAR and OLD datasets\",\n    x = NULL,\n    y = \"Number of unique ProgramLocationIDs\"\n  ) +\n  theme_minimal() +\n  theme(legend.position = \"none\")\n\n\n\n\n\n\n\n\n\nshow differences in ProgramLocationID\n# cat(\"Number of ProgramLocationIDs in SEACAR_STD but not in OLD_STD:\", length(seacar_only), \"/\", length(unique(dfs$SEACAR_STD$ProgramLocationID)), \"\\n\")\ncat(\"First few ProgramLocationIDs in SEACAR_STD but not in OLD_STD:\", head(seacar_only), \"\\n\")\n\n\nFirst few ProgramLocationIDs in SEACAR_STD but not in OLD_STD:  \n\n\nshow differences in ProgramLocationID\n# cat(\"Number of ProgramLocationIDs in OLD_STD but not in SEACAR_STD:\", length(old_only), \"/\", length(unique(dfs$OLD$ProgramLocationID)), \"\\n\")\ncat(\"First few ProgramLocationIDs in OLD_STD but not in SEACAR_STD:\", head(old_only), \"\\n\")\n\n\nFirst few ProgramLocationIDs in OLD_STD but not in SEACAR_STD:"
+  },
+  {
+    "objectID": "usage_examples/fcr_report_reproduction.html",
+    "href": "usage_examples/fcr_report_reproduction.html",
+    "title": "Florida Coral Reef Report Reproduction",
+    "section": "",
+    "text": "This example reproduces a figure style from the Florida Coral Reef (FCR) water quality reporting: split violin plots that compare the distribution of each analyte between the wet season and the dry season.\nSeasons follow the South Florida convention:\nload libraries and helpers\nlibrary(tidyverse)\nlibrary(here)\nlibrary(lubridate)\n\n# split violin geom + program-name -&gt; short-name mapping (both shipped in this repo)\nsource(here(\"R/GeomSplitViolin.R\"))\nsource(here(\"R/mapProgramNameToShortName.R\"))\n\n# minimum number of observations a (Data Provider x Season) group must have\n# before it is drawn as a violin\nMIN_OBS &lt;- 10\nread data, assign season, label Data Provider\ndf &lt;- readr::read_delim(\n  here(\"data/Discrete WQ - 10006.txt\"),\n  delim = \"|\",\n  show_col_types = FALSE\n) %&gt;%\n  mutate(\n    DataProvider = mapProgramNameToShortName(ProgramName),\n    month_num    = lubridate::month(SampleDate),\n    Season       = if_else(month_num &gt;= 5 & month_num &lt;= 10, \"Wet\", \"Dry\"),\n    Season       = factor(Season, levels = c(\"Dry\", \"Wet\"))\n  ) %&gt;%\n  filter(!is.na(ResultValue), is.finite(ResultValue))\n\ncat(\"Rows:\", nrow(df), \"\\n\")\n\n\nRows: 2085902 \n\n\nread data, assign season, label Data Provider\ncat(\"Data Providers:\", paste(sort(unique(df$DataProvider)), collapse = \", \"), \"\\n\")\n\n\nData Providers: AOML_SFPSSS, BBWW, BROWARD, DERM, FKNMS, MiamiBeach, NBB_DWQP, PalmBeach, SE_FL_WQAS, SERC \n\n\nread data, assign season, label Data Provider\ncat(\"Analytes:\", dplyr::n_distinct(df$ParameterName), \"\\n\")\n\n\nAnalytes: 24\nkeep only (analyte, provider) pairs with enough data in both seasons\ngroup_counts &lt;- df %&gt;%\n  count(ParameterName, DataProvider, Season, name = \"n\")\n\n# a provider is kept for an analyte only if BOTH seasons clear MIN_OBS\nkeep &lt;- group_counts %&gt;%\n  pivot_wider(names_from = Season, values_from = n, values_fill = 0) %&gt;%\n  filter(Dry &gt;= MIN_OBS, Wet &gt;= MIN_OBS) %&gt;%\n  select(ParameterName, DataProvider)\n\nplot_df &lt;- df %&gt;%\n  semi_join(keep, by = c(\"ParameterName\", \"DataProvider\"))\n\n# analytes that still have at least one provider to show\nanalytes &lt;- plot_df %&gt;%\n  distinct(ParameterName) %&gt;%\n  arrange(ParameterName) %&gt;%\n  pull(ParameterName)\n\ncat(\"Analytes plotted:\", length(analytes), \"\\n\")\n\n\nAnalytes plotted: 24\nsplit-violin plot for a single analyte\nseason_colors &lt;- c(Dry = \"#C49A6C\", Wet = \"#3C8DBC\")\n\n# fraction of EACH (Data Provider x Season) distribution hidden off each end of\n# the y-axis. The tails are only clipped from *view* (coord_cartesian) -- every\n# value still feeds the violin's density estimate, so shapes stay honest.\nTRIM_TAILS &lt;- 0.10\n\nplot_analyte &lt;- function(analyte) {\n  d &lt;- plot_df %&gt;% filter(ParameterName == analyte)\n  unit &lt;- d$ParameterUnits[1]\n\n  # y-window: from the lowest per-group 10th pctile to the highest per-group\n  # 90th pctile, so no violin's central mass falls entirely outside the view\n  bounds &lt;- d %&gt;%\n    group_by(DataProvider, Season) %&gt;%\n    summarise(\n      lo = quantile(ResultValue, TRIM_TAILS,     na.rm = TRUE),\n      hi = quantile(ResultValue, 1 - TRIM_TAILS, na.rm = TRUE),\n      .groups = \"drop\"\n    )\n  ylim &lt;- c(min(bounds$lo), max(bounds$hi))\n\n  pct &lt;- round(100 * TRIM_TAILS)\n\n  ggplot(d, aes(x = DataProvider, y = ResultValue, fill = Season)) +\n    geom_split_violin(\n      nudge = 0.03,\n      scale = \"width\",\n      trim  = TRUE,\n      colour = \"grey30\",\n      alpha = 0.85\n    ) +\n    stat_summary(\n      aes(group = Season),\n      fun = median,\n      geom = \"point\",\n      position = position_dodge(width = 0.25),\n      size = 1.6,\n      colour = \"grey15\",\n      show.legend = FALSE\n    ) +\n    scale_fill_manual(values = season_colors, drop = FALSE) +\n    coord_cartesian(ylim = ylim) +\n    labs(\n      title = analyte,\n      subtitle = glue::glue(\n        \"y-axis clipped to the central {100 - 2 * pct}% range; \",\n        \"violins computed from all data; median = grey dot\"\n      ),\n      x = \"Data Provider\",\n      y = if (!is.na(unit)) paste0(analyte, \" (\", unit, \")\") else analyte,\n      fill = \"Season\"\n    ) +\n    theme_minimal(base_size = 12) +\n    theme(\n      axis.text.x = element_text(angle = 45, hjust = 1),\n      legend.position = \"top\",\n      panel.grid.major.x = element_blank()\n    )\n}"
+  },
+  {
+    "objectID": "usage_examples/fcr_report_reproduction.html#ammonium-nh4",
+    "href": "usage_examples/fcr_report_reproduction.html#ammonium-nh4",
+    "title": "Florida Coral Reef Report Reproduction",
+    "section": "Ammonium (NH4)",
+    "text": "Ammonium (NH4)"
+  },
+  {
+    "objectID": "usage_examples/fcr_report_reproduction.html#chlorophyll-a-corrected-for-pheophytin",
+    "href": "usage_examples/fcr_report_reproduction.html#chlorophyll-a-corrected-for-pheophytin",
+    "title": "Florida Coral Reef Report Reproduction",
+    "section": "Chlorophyll a, Corrected for Pheophytin",
+    "text": "Chlorophyll a, Corrected for Pheophytin"
+  },
+  {
+    "objectID": "usage_examples/fcr_report_reproduction.html#chlorophyll-a-uncorrected-for-pheophytin",
+    "href": "usage_examples/fcr_report_reproduction.html#chlorophyll-a-uncorrected-for-pheophytin",
+    "title": "Florida Coral Reef Report Reproduction",
+    "section": "Chlorophyll a, Uncorrected for Pheophytin",
+    "text": "Chlorophyll a, Uncorrected for Pheophytin"
+  },
+  {
+    "objectID": "usage_examples/fcr_report_reproduction.html#colored-dissolved-organic-matter",
+    "href": "usage_examples/fcr_report_reproduction.html#colored-dissolved-organic-matter",
+    "title": "Florida Coral Reef Report Reproduction",
+    "section": "Colored Dissolved Organic Matter",
+    "text": "Colored Dissolved Organic Matter"
+  },
+  {
+    "objectID": "usage_examples/fcr_report_reproduction.html#dissolved-oxygen",
+    "href": "usage_examples/fcr_report_reproduction.html#dissolved-oxygen",
+    "title": "Florida Coral Reef Report Reproduction",
+    "section": "Dissolved Oxygen",
+    "text": "Dissolved Oxygen"
+  },
+  {
+    "objectID": "usage_examples/fcr_report_reproduction.html#dissolved-oxygen-saturation",
+    "href": "usage_examples/fcr_report_reproduction.html#dissolved-oxygen-saturation",
+    "title": "Florida Coral Reef Report Reproduction",
+    "section": "Dissolved Oxygen Saturation",
+    "text": "Dissolved Oxygen Saturation"
+  },
+  {
+    "objectID": "usage_examples/fcr_report_reproduction.html#light-extinction-coefficient",
+    "href": "usage_examples/fcr_report_reproduction.html#light-extinction-coefficient",
+    "title": "Florida Coral Reef Report Reproduction",
+    "section": "Light Extinction Coefficient",
+    "text": "Light Extinction Coefficient"
+  },
+  {
+    "objectID": "usage_examples/fcr_report_reproduction.html#no23-filtered",
+    "href": "usage_examples/fcr_report_reproduction.html#no23-filtered",
+    "title": "Florida Coral Reef Report Reproduction",
+    "section": "NO2+3, Filtered",
+    "text": "NO2+3, Filtered"
+  },
+  {
+    "objectID": "usage_examples/fcr_report_reproduction.html#nitrate-no3",
+    "href": "usage_examples/fcr_report_reproduction.html#nitrate-no3",
+    "title": "Florida Coral Reef Report Reproduction",
+    "section": "Nitrate (NO3)",
+    "text": "Nitrate (NO3)"
+  },
+  {
+    "objectID": "usage_examples/fcr_report_reproduction.html#nitrite-no2",
+    "href": "usage_examples/fcr_report_reproduction.html#nitrite-no2",
+    "title": "Florida Coral Reef Report Reproduction",
+    "section": "Nitrite (NO2)",
+    "text": "Nitrite (NO2)"
+  },
+  {
+    "objectID": "usage_examples/fcr_report_reproduction.html#nitrogen-inorganic",
+    "href": "usage_examples/fcr_report_reproduction.html#nitrogen-inorganic",
+    "title": "Florida Coral Reef Report Reproduction",
+    "section": "Nitrogen, inorganic",
+    "text": "Nitrogen, inorganic"
+  },
+  {
+    "objectID": "usage_examples/fcr_report_reproduction.html#nitrogen-organic",
+    "href": "usage_examples/fcr_report_reproduction.html#nitrogen-organic",
+    "title": "Florida Coral Reef Report Reproduction",
+    "section": "Nitrogen, organic",
+    "text": "Nitrogen, organic"
+  },
+  {
+    "objectID": "usage_examples/fcr_report_reproduction.html#phosphate-filtered-po4",
+    "href": "usage_examples/fcr_report_reproduction.html#phosphate-filtered-po4",
+    "title": "Florida Coral Reef Report Reproduction",
+    "section": "Phosphate, Filtered (PO4)",
+    "text": "Phosphate, Filtered (PO4)"
+  },
+  {
+    "objectID": "usage_examples/fcr_report_reproduction.html#salinity",
+    "href": "usage_examples/fcr_report_reproduction.html#salinity",
+    "title": "Florida Coral Reef Report Reproduction",
+    "section": "Salinity",
+    "text": "Salinity"
+  },
+  {
+    "objectID": "usage_examples/fcr_report_reproduction.html#secchi-depth",
+    "href": "usage_examples/fcr_report_reproduction.html#secchi-depth",
+    "title": "Florida Coral Reef Report Reproduction",
+    "section": "Secchi Depth",
+    "text": "Secchi Depth"
+  },
+  {
+    "objectID": "usage_examples/fcr_report_reproduction.html#specific-conductivity",
+    "href": "usage_examples/fcr_report_reproduction.html#specific-conductivity",
+    "title": "Florida Coral Reef Report Reproduction",
+    "section": "Specific Conductivity",
+    "text": "Specific Conductivity"
+  },
+  {
+    "objectID": "usage_examples/fcr_report_reproduction.html#total-ammonia-n",
+    "href": "usage_examples/fcr_report_reproduction.html#total-ammonia-n",
+    "title": "Florida Coral Reef Report Reproduction",
+    "section": "Total Ammonia (N)",
+    "text": "Total Ammonia (N)"
+  },
+  {
+    "objectID": "usage_examples/fcr_report_reproduction.html#total-kjeldahl-nitrogen",
+    "href": "usage_examples/fcr_report_reproduction.html#total-kjeldahl-nitrogen",
+    "title": "Florida Coral Reef Report Reproduction",
+    "section": "Total Kjeldahl Nitrogen",
+    "text": "Total Kjeldahl Nitrogen"
+  },
+  {
+    "objectID": "usage_examples/fcr_report_reproduction.html#total-nitrogen",
+    "href": "usage_examples/fcr_report_reproduction.html#total-nitrogen",
+    "title": "Florida Coral Reef Report Reproduction",
+    "section": "Total Nitrogen",
+    "text": "Total Nitrogen"
+  },
+  {
+    "objectID": "usage_examples/fcr_report_reproduction.html#total-phosphorus",
+    "href": "usage_examples/fcr_report_reproduction.html#total-phosphorus",
+    "title": "Florida Coral Reef Report Reproduction",
+    "section": "Total Phosphorus",
+    "text": "Total Phosphorus"
+  },
+  {
+    "objectID": "usage_examples/fcr_report_reproduction.html#total-suspended-solids",
+    "href": "usage_examples/fcr_report_reproduction.html#total-suspended-solids",
+    "title": "Florida Coral Reef Report Reproduction",
+    "section": "Total Suspended Solids",
+    "text": "Total Suspended Solids"
+  },
+  {
+    "objectID": "usage_examples/fcr_report_reproduction.html#turbidity",
+    "href": "usage_examples/fcr_report_reproduction.html#turbidity",
+    "title": "Florida Coral Reef Report Reproduction",
+    "section": "Turbidity",
+    "text": "Turbidity"
+  },
+  {
+    "objectID": "usage_examples/fcr_report_reproduction.html#water-temperature",
+    "href": "usage_examples/fcr_report_reproduction.html#water-temperature",
+    "title": "Florida Coral Reef Report Reproduction",
+    "section": "Water Temperature",
+    "text": "Water Temperature"
+  },
+  {
+    "objectID": "usage_examples/fcr_report_reproduction.html#ph",
+    "href": "usage_examples/fcr_report_reproduction.html#ph",
+    "title": "Florida Coral Reef Report Reproduction",
+    "section": "pH",
+    "text": "pH\n\n\nNotes\n\nSplit-violin drawing comes from R/GeomSplitViolin.R (geom_split_violin()), which is also exported by this package.\nscale = \"width\" makes every violin the same maximum width so shape is comparable across providers with very different sample sizes; the grey dot marks each season’s median.\n(Data Provider x Season) groups with fewer than MIN_OBS\n\nobservations are dropped, and a provider is only shown for an analyte when both seasons clear that threshold.\n\nTail handling (zoom, not drop). Analytes here are strongly right-skewed, and a few extreme values otherwise stretch the y-axis until the violins collapse to lines. Every value still feeds each violin’s density estimate, but the y-axis is clipped with coord_cartesian() to [min group P{r} round(100 * TRIM_TAILS), max group P{r} round(100 * (1 - TRIM_TAILS))] across the (Data Provider x Season) groups (TRIM_TAILS &lt;- {r} TRIM_TAILS). So the shapes stay honest and only the tails are out of frame. Using ylim() or scale_y_continuous(limits=) instead would discard those points before the density is fit and distort the violins. Set TRIM_TAILS &lt;- 0 for the full range.\n\nOther ways to handle the long tails (swap into plot_analyte() as needed):\n\nTrim instead of zoom — filter each group to its P10–P90 before plotting; the violin then describes only the retained 80% (smaller n, no tail info).\nWinsorize rather than trim — pmin(pmax(x, lo), hi) piles the clipped mass into a spike at each cap, which keeps the sample size intact and signals that a tail exists.\nCompress the axis — scale_y_continuous(trans = \"sqrt\") (used elsewhere in this repo) or trans = scales::pseudo_log_trans() tame skew while still showing the tails, and both tolerate zeros (pseudo_log also tolerates negatives).\nDifferent mark — a letter-value / boxen plot (lvplot::geom_lv()) or a plain boxplot conveys skewed, heavy-tailed data more legibly than a violin.\nFacet with free y — ggforce::facet_row(~ DataProvider, scales = \"free_y\") gives each provider its own y-range so no single noisy provider flattens the rest."
   }
 ]
