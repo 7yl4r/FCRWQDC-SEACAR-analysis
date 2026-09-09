@@ -1,0 +1,198 @@
+---
+title: "Florida Coral Reef Report Reproduction"
+format: html
+---
+
+This example reproduces a figure style from the Florida Coral Reef (FCR) water
+quality reporting: **split violin plots** that compare the distribution of each
+analyte between the **wet season** and the **dry season**.
+
+* Each violin is split down the middle: the left half is the dry season, the
+  right half is the wet season.
+* Violins are grouped along the x-axis by **Data Provider** (the SEACAR
+  `ProgramName`, mapped to its short name via
+  `mapProgramNameToShortName()`).
+* There is **one plot (one set of violins) per analyte**.
+
+Seasons follow the South Florida convention:
+
+| Season | Months            |
+|--------|-------------------|
+| Wet    | May – October     |
+| Dry    | November – April  |
+
+```{r setup}
+#| code-summary: load libraries and helpers
+#| message: false
+#| warning: false
+library(tidyverse)
+library(here)
+library(lubridate)
+
+# split violin geom + program-name -> short-name mapping (both shipped in this repo)
+source(here("R/GeomSplitViolin.R"))
+source(here("R/mapProgramNameToShortName.R"))
+
+# minimum number of observations a (Data Provider x Season) group must have
+# before it is drawn as a violin
+MIN_OBS <- 10
+```
+
+```{r load-data}
+#| code-summary: read data, assign season, label Data Provider
+df <- readr::read_delim(
+  here("data/Discrete WQ - 10006.txt"),
+  delim = "|",
+  show_col_types = FALSE
+) %>%
+  mutate(
+    DataProvider = mapProgramNameToShortName(ProgramName),
+    month_num    = lubridate::month(SampleDate),
+    Season       = if_else(month_num >= 5 & month_num <= 10, "Wet", "Dry"),
+    Season       = factor(Season, levels = c("Dry", "Wet"))
+  ) %>%
+  filter(!is.na(ResultValue), is.finite(ResultValue))
+
+cat("Rows:", nrow(df), "\n")
+cat("Data Providers:", paste(sort(unique(df$DataProvider)), collapse = ", "), "\n")
+cat("Analytes:", dplyr::n_distinct(df$ParameterName), "\n")
+```
+
+```{r trim-sparse-groups}
+#| code-summary: keep only (analyte, provider) pairs with enough data in both seasons
+group_counts <- df %>%
+  count(ParameterName, DataProvider, Season, name = "n")
+
+# a provider is kept for an analyte only if BOTH seasons clear MIN_OBS
+keep <- group_counts %>%
+  pivot_wider(names_from = Season, values_from = n, values_fill = 0) %>%
+  filter(Dry >= MIN_OBS, Wet >= MIN_OBS) %>%
+  select(ParameterName, DataProvider)
+
+plot_df <- df %>%
+  semi_join(keep, by = c("ParameterName", "DataProvider"))
+
+# analytes that still have at least one provider to show
+analytes <- plot_df %>%
+  distinct(ParameterName) %>%
+  arrange(ParameterName) %>%
+  pull(ParameterName)
+
+cat("Analytes plotted:", length(analytes), "\n")
+```
+
+```{r plot-fn}
+#| code-summary: split-violin plot for a single analyte
+season_colors <- c(Dry = "#C49A6C", Wet = "#3C8DBC")
+
+# fraction of EACH (Data Provider x Season) distribution hidden off each end of
+# the y-axis. The tails are only clipped from *view* (coord_cartesian) -- every
+# value still feeds the violin's density estimate, so shapes stay honest.
+TRIM_TAILS <- 0.10
+
+plot_analyte <- function(analyte) {
+  d <- plot_df %>% filter(ParameterName == analyte)
+  unit <- d$ParameterUnits[1]
+
+  # y-window: from the lowest per-group 10th pctile to the highest per-group
+  # 90th pctile, so no violin's central mass falls entirely outside the view
+  bounds <- d %>%
+    group_by(DataProvider, Season) %>%
+    summarise(
+      lo = quantile(ResultValue, TRIM_TAILS,     na.rm = TRUE),
+      hi = quantile(ResultValue, 1 - TRIM_TAILS, na.rm = TRUE),
+      .groups = "drop"
+    )
+  ylim <- c(min(bounds$lo), max(bounds$hi))
+
+  pct <- round(100 * TRIM_TAILS)
+
+  ggplot(d, aes(x = DataProvider, y = ResultValue, fill = Season)) +
+    geom_split_violin(
+      nudge = 0.03,
+      scale = "width",
+      trim  = TRUE,
+      colour = "grey30",
+      alpha = 0.85
+    ) +
+    stat_summary(
+      aes(group = Season),
+      fun = median,
+      geom = "point",
+      position = position_dodge(width = 0.25),
+      size = 1.6,
+      colour = "grey15",
+      show.legend = FALSE
+    ) +
+    scale_fill_manual(values = season_colors, drop = FALSE) +
+    coord_cartesian(ylim = ylim) +
+    labs(
+      title = analyte,
+      subtitle = glue::glue(
+        "y-axis clipped to the central {100 - 2 * pct}% range; ",
+        "violins computed from all data; median = grey dot"
+      ),
+      x = "Data Provider",
+      y = if (!is.na(unit)) paste0(analyte, " (", unit, ")") else analyte,
+      fill = "Season"
+    ) +
+    theme_minimal(base_size = 12) +
+    theme(
+      axis.text.x = element_text(angle = 45, hjust = 1),
+      legend.position = "top",
+      panel.grid.major.x = element_blank()
+    )
+}
+```
+
+```{r render-all}
+#| code-summary: one set of violins per analyte
+#| results: asis
+#| fig-width: 9
+#| fig-height: 5
+for (analyte in analytes) {
+  cat("\n\n## ", analyte, "\n\n", sep = "")
+  print(plot_analyte(analyte))
+  cat("\n\n")
+}
+```
+
+---
+
+**Notes**
+
+* Split-violin drawing comes from `R/GeomSplitViolin.R` (`geom_split_violin()`),
+  which is also exported by this package.
+* `scale = "width"` makes every violin the same maximum width so shape is
+  comparable across providers with very different sample sizes; the grey dot
+  marks each season's median.
+* `(Data Provider x Season)` groups with fewer than `MIN_OBS`
+  (`{r} MIN_OBS`) observations are dropped, and a provider is only shown for an
+  analyte when *both* seasons clear that threshold.
+* **Tail handling (zoom, not drop).** Analytes here are strongly right-skewed,
+  and a few extreme values otherwise stretch the y-axis until the violins
+  collapse to lines. Every value still feeds each violin's density estimate, but
+  the y-axis is clipped with `coord_cartesian()` to
+  `[min group P{r} round(100 * TRIM_TAILS), max group P{r} round(100 * (1 - TRIM_TAILS))]`
+  across the `(Data Provider x Season)` groups (`TRIM_TAILS <- {r} TRIM_TAILS`).
+  So the shapes stay honest and only the tails are out of frame. Using `ylim()`
+  or `scale_y_continuous(limits=)` instead would *discard* those points before
+  the density is fit and distort the violins. Set `TRIM_TAILS <- 0` for the full
+  range.
+
+**Other ways to handle the long tails** (swap into `plot_analyte()` as needed):
+
+* **Trim instead of zoom** — filter each group to its P10–P90 before plotting;
+  the violin then describes only the retained 80% (smaller n, no tail info).
+* **Winsorize** rather than trim — `pmin(pmax(x, lo), hi)` piles the clipped mass
+  into a spike at each cap, which keeps the sample size intact and signals that a
+  tail exists.
+* **Compress the axis** — `scale_y_continuous(trans = "sqrt")` (used elsewhere in
+  this repo) or `trans = scales::pseudo_log_trans()` tame skew while still
+  showing the tails, and both tolerate zeros (`pseudo_log` also tolerates
+  negatives).
+* **Different mark** — a letter-value / boxen plot (`lvplot::geom_lv()`) or a
+  plain boxplot conveys skewed, heavy-tailed data more legibly than a violin.
+* **Facet with free y** — `ggforce::facet_row(~ DataProvider, scales = "free_y")`
+  gives each provider its own y-range so no single noisy provider flattens the
+  rest.

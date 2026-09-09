@@ -27,6 +27,7 @@ project:
   - usage_examples/map_program_parameter_subset.qmd
   - usage_examples/plot_slopes.qmd
   - usage_examples/tidy-wide.qmd
+  - usage_examples/fcr_report_reproduction.qmd
 
   
 website:
@@ -53,6 +54,8 @@ website:
           text: Map of Slope Values
         - href: usage_examples/tidy-wide.qmd
           text: Transform To Tidy Wide
+        - href: usage_examples/fcr_report_reproduction.qmd
+          text: FCR Report Reproduction
 
     - href: https://github.com/USF-IMARS/FCRWQDC-SEACAR-analysis
       text: Source Code on GitHub
